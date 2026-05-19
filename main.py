@@ -2,19 +2,35 @@ import os
 import asyncio
 import re
 import json
+import time
 import urllib.request
-import urllib.parse
 from dotenv import load_dotenv
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 
 load_dotenv()
 
-API_ID      = int(os.getenv("API_ID"))
-API_HASH    = os.getenv("API_HASH")
-SESSION     = os.getenv("SESSION_STRING")
-TARGET      = int(os.getenv("TARGET_GROUP"))
-GEMINI_KEY  = os.getenv("GEMINI_API_KEY")
+API_ID   = int(os.getenv("API_ID"))
+API_HASH = os.getenv("API_HASH")
+SESSION  = os.getenv("SESSION_STRING")
+TARGET   = int(os.getenv("TARGET_GROUP"))
+
+# Carrega todas as chaves disponíveis
+GEMINI_KEYS = []
+for i in range(1, 6):
+    k = os.getenv(f"GEMINI_KEY_{i}")
+    if k:
+        GEMINI_KEYS.append(k)
+
+print(f"🔑 {len(GEMINI_KEYS)} chaves Gemini carregadas")
+
+current_key_index = 0
+
+def get_next_key():
+    global current_key_index
+    key = GEMINI_KEYS[current_key_index % len(GEMINI_KEYS)]
+    current_key_index += 1
+    return key
 
 client = TelegramClient(StringSession(SESSION), API_ID, API_HASH)
 
@@ -39,11 +55,41 @@ def detect_platform(url: str) -> str:
             return name
     return "Site/Artigo"
 
-def gemini_analyze(url: str, platform: str) -> dict:
-    import time
-    for tentativa in range(3):
+def gemini_call(prompt: str) -> str:
+    """Chama Gemini com rodízio de chaves."""
+    for tentativa in range(len(GEMINI_KEYS)):
+        key = get_next_key()
         try:
-            prompt = f"""Você é um analista especialista. Analise este link:
+            payload = json.dumps({
+                "contents": [{"parts": [{"text": prompt}]}]
+            }).encode("utf-8")
+
+            api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}"
+
+            req = urllib.request.Request(
+                api_url,
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+
+            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+        except Exception as e:
+            if "429" in str(e):
+                print(f"⚠️ Chave {tentativa+1} com limite, tentando próxima...")
+                time.sleep(2)
+                continue
+            raise e
+
+    raise Exception("Todas as chaves atingiram o limite. Tente novamente em 1 minuto.")
+
+def gemini_analyze(url: str, platform: str) -> dict:
+    try:
+        prompt = f"""Você é um analista especialista. Analise este link em português brasileiro:
 
 URL: {url}
 Plataforma: {platform}
@@ -65,39 +111,20 @@ Análise técnica e lógica:
 - Stack tecnológica provável
 - Oportunidades de melhoria ou expansão"""
 
-            payload = json.dumps({
-                "contents": [{"parts": [{"text": prompt}]}]
-            }).encode("utf-8")
+        full = gemini_call(prompt)
 
-            api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_KEY}"
+        if "---CONTEUDO---" in full and "---TECNICO---" in full:
+            parts = full.split("---TECNICO---")
+            conteudo = parts[0].replace("---CONTEUDO---", "").strip()
+            tecnico = parts[1].strip()
+        else:
+            conteudo = full
+            tecnico = "Análise técnica não disponível."
 
-            req = urllib.request.Request(
-                api_url,
-                data=payload,
-                headers={"Content-Type": "application/json"},
-                method="POST"
-            )
+        return {"conteudo": conteudo, "tecnico": tecnico}
 
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-
-            full = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-
-            if "---CONTEUDO---" in full and "---TECNICO---" in full:
-                parts = full.split("---TECNICO---")
-                conteudo = parts[0].replace("---CONTEUDO---", "").strip()
-                tecnico = parts[1].strip()
-            else:
-                conteudo = full
-                tecnico = "Análise técnica não disponível."
-
-            return {"conteudo": conteudo, "tecnico": tecnico}
-
-        except Exception as e:
-            if "429" in str(e) and tentativa < 2:
-                time.sleep(30)  # aguarda 30s e tenta de novo
-                continue
-            return {"conteudo": f"Erro: {e}", "tecnico": f"Erro: {e}"}
+    except Exception as e:
+        return {"conteudo": str(e), "tecnico": str(e)}
 
 @client.on(events.NewMessage)
 async def handler(event):
@@ -116,7 +143,9 @@ async def handler(event):
 
     aguarde = await event.reply(f"🔍 Analisando `{platform}`... aguarde.")
 
-    resultado = gemini_analyze(url, platform)
+    resultado = await asyncio.get_event_loop().run_in_executor(
+        None, gemini_analyze, url, platform
+    )
 
     msg_conteudo = (
         f"📋 *ANÁLISE DE CONTEÚDO*\n"
