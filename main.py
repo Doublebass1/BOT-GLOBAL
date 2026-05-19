@@ -67,7 +67,7 @@ Análise técnica e lógica:
             "contents": [{"parts": [{"text": prompt}]}]
         }).encode("utf-8")
 
-        api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_KEY}"
+        api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
 
         req = urllib.request.Request(
             api_url,
