@@ -9,11 +9,11 @@ from telethon.sessions import StringSession
 
 load_dotenv()
 
-API_ID        = int(os.getenv("API_ID"))
-API_HASH      = os.getenv("API_HASH")
-SESSION       = os.getenv("SESSION_STRING")
-TARGET        = int(os.getenv("TARGET_GROUP"))
-OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
+API_ID    = int(os.getenv("API_ID"))
+API_HASH  = os.getenv("API_HASH")
+SESSION   = os.getenv("SESSION_STRING")
+TARGET    = int(os.getenv("TARGET_GROUP"))
+GROQ_KEY  = os.getenv("GROQ_API_KEY")
 
 client = TelegramClient(StringSession(SESSION), API_ID, API_HASH)
 URL_PATTERN = re.compile(r'https?://[^\s]+')
@@ -53,18 +53,17 @@ Plataforma: {platform}
 - Oportunidades de melhoria"""
 
         payload = json.dumps({
-            "model": "meta-llama/llama-3.3-70b-instruct:free",
-            "messages": [{"role": "user", "content": prompt}]
+            "model": "llama-3.3-70b-versatile",
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 2000
         }).encode("utf-8")
 
         req = urllib.request.Request(
-            "https://openrouter.ai/api/v1/chat/completions",
+            "https://api.groq.com/openai/v1/chat/completions",
             data=payload,
             headers={
                 "Content-Type": "application/json",
-                "Authorization": f"Bearer {OPENROUTER_KEY}",
-                "HTTP-Referer": "https://t.me",
-                "X-Title": "BOT GLOBAL"
+                "Authorization": f"Bearer {GROQ_KEY}"
             }
         )
 
