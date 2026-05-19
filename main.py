@@ -1,7 +1,6 @@
 import os
 import asyncio
 import re
-import json
 import requests
 from dotenv import load_dotenv
 from telethon import TelegramClient, events
@@ -77,9 +76,8 @@ def fetch_video_info(url):
 def fetch_site_info(url):
     """Tenta extrair texto básico de sites/artigos."""
     try:
-        resp = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
-        text = resp.text
-        # Remove tags HTML básicas
+        resp  = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+        text  = resp.text
         clean = re.sub(r'<[^>]+>', ' ', text)
         clean = re.sub(r'\s+', ' ', clean).strip()
         return clean[:3000]
@@ -98,8 +96,19 @@ def call_groq(prompt):
             },
             json={
                 "model": "llama-3.3-70b-versatile",
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 2000,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "Você é um analista especialista em conteúdo digital. "
+                            "Sempre responda em português brasileiro. "
+                            "OBRIGATÓRIO: separe sua resposta em dois blocos usando exatamente "
+                            "o marcador |||TECNICO||| entre eles. Nunca omita esse marcador."
+                        )
+                    },
+                    {"role": "user", "content": prompt}
+                ],
+                "max_tokens": 2500,
             },
             timeout=30,
         )
@@ -110,7 +119,6 @@ def call_groq(prompt):
 
 
 def analyze(url, platform):
-    # Monta contexto de acordo com a plataforma
     if platform == "YouTube":
         info = fetch_video_info(url)
         if "error" in info:
@@ -130,36 +138,40 @@ Descrição:
         conteudo_site = fetch_site_info(url)
         contexto = f"Conteúdo extraído do site:\n{conteudo_site}"
 
-    prompt = f"""Você é um analista especialista. Analise o conteúdo abaixo em português brasileiro.
-Responda em DOIS blocos separados exatamente pelo marcador ---TECNICO---
+    prompt = f"""Analise o conteúdo abaixo e responda em DOIS blocos.
+O primeiro bloco começa com [CONTEÚDO] e o segundo com [TÉCNICO].
+Separe os dois blocos com o marcador exato: |||TECNICO|||
 
 Plataforma: {platform}
 URL: {url}
 
 {contexto}
 
----CONTEUDO---
-- O que é e sobre o que trata
-- Quem produziu e credibilidade
-- Mensagem principal e pontos mais relevantes
-- Vale a pena consumir? Por quê?
+[CONTEÚDO] — responda com detalhes sobre:
+1. O que é e sobre o que trata (seja específico, cite o título e tema)
+2. Quem produziu, canal/autor e credibilidade (seguidores, views, reputação)
+3. Mensagem principal e os 3 pontos mais relevantes
+4. Vale a pena consumir? Justifique com argumentos concretos
 
----TECNICO---
-- Estrutura e formato do conteúdo
-- Se for sistema/app/bot: lógica por trás
-- Prompt completo e detalhado para replicar com IA (pronto para usar)
-- Stack tecnológica provável
-- Oportunidades de melhoria"""
+|||TECNICO|||
+
+[TÉCNICO] — responda com detalhes sobre:
+1. Estrutura e formato do conteúdo (duração, edição, ritmo, estilo)
+2. Se for sistema/app/bot: explique a lógica completa por trás
+3. Prompt pronto para replicar esse conteúdo com IA — escreva o prompt completo, detalhado e pronto para copiar e usar
+4. Stack tecnológica provável usada na produção
+5. 3 oportunidades concretas de melhoria ou expansão desse conteúdo"""
 
     full = call_groq(prompt)
 
-    if "---TECNICO---" in full:
-        parts    = full.split("---TECNICO---")
-        conteudo = parts[0].replace("---CONTEUDO---", "").strip()
-        tecnico  = parts[1].strip()
+    if "|||TECNICO|||" in full:
+        parts    = full.split("|||TECNICO|||")
+        conteudo = parts[0].replace("[CONTEÚDO]", "").strip()
+        tecnico  = parts[1].replace("[TÉCNICO]", "").strip()
     else:
-        conteudo = full
-        tecnico  = "Análise técnica não disponível."
+        meio     = len(full) // 2
+        conteudo = full[:meio].strip()
+        tecnico  = full[meio:].strip()
 
     return {"conteudo": conteudo, "tecnico": tecnico}
 
