@@ -40,8 +40,10 @@ def detect_platform(url: str) -> str:
     return "Site/Artigo"
 
 def gemini_analyze(url: str, platform: str) -> dict:
-    try:
-        prompt = f"""Você é um analista especialista. Analise este link:
+    import time
+    for tentativa in range(3):
+        try:
+            prompt = f"""Você é um analista especialista. Analise este link:
 
 URL: {url}
 Plataforma: {platform}
@@ -63,36 +65,39 @@ Análise técnica e lógica:
 - Stack tecnológica provável
 - Oportunidades de melhoria ou expansão"""
 
-        payload = json.dumps({
-            "contents": [{"parts": [{"text": prompt}]}]
-        }).encode("utf-8")
+            payload = json.dumps({
+                "contents": [{"parts": [{"text": prompt}]}]
+            }).encode("utf-8")
 
-        api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_KEY}"
+            api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_KEY}"
 
-        req = urllib.request.Request(
-            api_url,
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST"
-        )
+            req = urllib.request.Request(
+                api_url,
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
 
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
 
-        full = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            full = data["candidates"][0]["content"]["parts"][0]["text"].strip()
 
-        if "---CONTEUDO---" in full and "---TECNICO---" in full:
-            parts = full.split("---TECNICO---")
-            conteudo = parts[0].replace("---CONTEUDO---", "").strip()
-            tecnico = parts[1].strip()
-        else:
-            conteudo = full
-            tecnico = "Análise técnica não disponível."
+            if "---CONTEUDO---" in full and "---TECNICO---" in full:
+                parts = full.split("---TECNICO---")
+                conteudo = parts[0].replace("---CONTEUDO---", "").strip()
+                tecnico = parts[1].strip()
+            else:
+                conteudo = full
+                tecnico = "Análise técnica não disponível."
 
-        return {"conteudo": conteudo, "tecnico": tecnico}
+            return {"conteudo": conteudo, "tecnico": tecnico}
 
-    except Exception as e:
-        return {"conteudo": f"Erro: {e}", "tecnico": f"Erro: {e}"}
+        except Exception as e:
+            if "429" in str(e) and tentativa < 2:
+                time.sleep(30)  # aguarda 30s e tenta de novo
+                continue
+            return {"conteudo": f"Erro: {e}", "tecnico": f"Erro: {e}"}
 
 @client.on(events.NewMessage)
 async def handler(event):
